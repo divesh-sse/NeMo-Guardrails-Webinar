@@ -369,8 +369,8 @@ with st.sidebar:
 # thread so they bind to that thread's event loop correctly.
 # ─────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
-def _cached_config(exp_num: int, model: str, api_key: str):
-    return get_rails_config(exp_num, model, api_key)
+def _cached_config(exp_num: int):
+    return get_rails_config(exp_num)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -391,11 +391,14 @@ def infer_raw(message: str) -> tuple:
 
 
 def infer_guarded(exp_num: int, message: str) -> tuple:
-    config = _cached_config(exp_num, guard_model, groq_guard)
-    t0     = time.time()
+    config  = _cached_config(exp_num)
+    api_key = groq_guard
+    model   = guard_model
+    t0      = time.time()
 
     def _call():
-        rails = LLMRails(config)
+        llm = ChatGroq(api_key=api_key, model=model, temperature=0)
+        rails = LLMRails(config, llm=llm)
         register_actions(rails, exp_num)
         return rails.generate(messages=[{"role": "user", "content": message}])
 

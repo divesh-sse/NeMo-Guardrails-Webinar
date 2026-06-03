@@ -11,8 +11,6 @@ from colang_defs import (
 )
 from actions import detect_pii_in_input, classify_urgency, sanitize_output
 
-_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-
 # ─────────────────────────────────────────────────────────────
 # Colang strings per experiment (cumulative)
 # ─────────────────────────────────────────────────────────────
@@ -31,33 +29,12 @@ _ACTION_MAP = {
     7: [sanitize_output],
 }
 
-
-def _build_yaml(exp_num: int, model: str, api_key: str) -> str:
-    """Build YAML config with Groq's OpenAI-compatible endpoint baked in."""
-    rails_section = ""
-    if exp_num == 6:
-        rails_section = """
-rails:
-  input:
-    flows:
-      - check input for pii
-      - detect urgency
-"""
-    elif exp_num == 7:
-        rails_section = """
-rails:
-  output:
-    flows:
-      - sanitize bot response
-"""
-    return f"""
+# engine/model are placeholders — overridden by llm= passed to LLMRails
+_YAML_BASE = """
 models:
   - type: main
     engine: openai
-    model: {model}
-    parameters:
-      base_url: {_GROQ_BASE_URL}
-      api_key: {api_key}
+    model: gpt-3.5-turbo
 
 instructions:
   - type: general
@@ -65,14 +42,38 @@ instructions:
       You are an Enterprise IT Assistant specialising in Kubernetes,
       Intel hardware, and enterprise networking.
       Only answer questions about these topics. Be professional and concise.
-{rails_section}"""
+"""
+
+_YAML_INPUT_RAILS = _YAML_BASE + """
+rails:
+  input:
+    flows:
+      - check input for pii
+      - detect urgency
+"""
+
+_YAML_OUTPUT_RAILS = _YAML_BASE + """
+rails:
+  output:
+    flows:
+      - sanitize bot response
+"""
+
+_YAML_MAP = {
+    2: _YAML_BASE,
+    3: _YAML_BASE,
+    4: _YAML_BASE,
+    5: _YAML_BASE,
+    6: _YAML_INPUT_RAILS,
+    7: _YAML_OUTPUT_RAILS,
+}
 
 
-def get_rails_config(exp_num: int, model: str, api_key: str) -> RailsConfig:
+def get_rails_config(exp_num: int) -> RailsConfig:
     """Return the RailsConfig for an experiment (no async state — safe to cache)."""
     return RailsConfig.from_content(
         colang_content=_COLANG_MAP[exp_num],
-        yaml_content=_build_yaml(exp_num, model, api_key),
+        yaml_content=_YAML_MAP[exp_num],
     )
 
 
@@ -82,10 +83,10 @@ def register_actions(rails: LLMRails, exp_num: int) -> None:
         rails.register_action(action_fn)
 
 
-def build_rails(exp_num: int, model: str, api_key: str) -> LLMRails:
+def build_rails(exp_num: int, llm) -> LLMRails:
     """Build and return a fully configured LLMRails instance for the given experiment."""
-    config = get_rails_config(exp_num, model, api_key)
-    rails  = LLMRails(config)
+    config = get_rails_config(exp_num)
+    rails  = LLMRails(config, llm=llm)
     register_actions(rails, exp_num)
     return rails
 
