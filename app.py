@@ -1,10 +1,18 @@
 import time
-import nest_asyncio
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 
-nest_asyncio.apply()
+# NeMo uses asyncio internally. Running it in a thread pool worker (no running
+# event loop there) lets asyncio.run() work cleanly without nest_asyncio, which
+# would break Streamlit's own anyio-based ASGI server if patched at module level.
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="nemo_worker")
+
+def _run_in_thread(fn, *args, **kwargs):
+    future = _executor.submit(fn, *args, **kwargs)
+    return future.result(timeout=120)
 
 from colang_defs import SYSTEM_PROMPT_RAW
 from diagrams import get_diagram
@@ -362,17 +370,22 @@ def _rails(exp_num: int, guard_key: str, guard_model: str):
 # Inference helpers
 # ─────────────────────────────────────────────────────────────
 def infer_raw(message: str) -> tuple:
-    llm = _chat_llm(groq_main, chat_model)
-    t0  = time.time()
-    resp = llm.invoke([SystemMessage(content=SYSTEM_PROMPT_RAW), HumanMessage(content=message)])
+    llm  = _chat_llm(groq_main, chat_model)
+    msgs = [SystemMessage(content=SYSTEM_PROMPT_RAW), HumanMessage(content=message)]
+    t0   = time.time()
+    resp = _run_in_thread(llm.invoke, msgs)
     return resp.content, round((time.time() - t0) * 1000)
 
 
 def infer_guarded(exp_num: int, message: str) -> tuple:
     rails = _rails(exp_num, groq_guard, guard_model)
     t0    = time.time()
-    resp  = rails.generate(messages=[{"role": "user", "content": message}])
-    ms    = round((time.time() - t0) * 1000)
+
+    def _generate():
+        return rails.generate(messages=[{"role": "user", "content": message}])
+
+    resp    = _run_in_thread(_generate)
+    ms      = round((time.time() - t0) * 1000)
     content = resp.get("content", str(resp)) if isinstance(resp, dict) else str(resp)
     return content, ms
 
