@@ -42,12 +42,17 @@ _ACTION_MAP = {
 }
 
 
+def get_rails_config(exp_num: int) -> RailsConfig:
+    """Return the RailsConfig for an experiment (no async state — safe to cache)."""
+    return RailsConfig.from_content(
+        colang_content=_COLANG_MAP[exp_num],
+        yaml_content=_YAML_MAP[exp_num],
+    )
+
+
 def build_rails(exp_num: int, guard_llm) -> LLMRails:
     """Build and return a fully configured LLMRails instance for the given experiment."""
-    colang = _COLANG_MAP[exp_num]
-    yaml   = _YAML_MAP[exp_num]
-
-    config = RailsConfig.from_content(colang_content=colang, yaml_content=yaml)
+    config = get_rails_config(exp_num)
     rails  = LLMRails(config, llm=guard_llm)
 
     for action_fn in _ACTION_MAP.get(exp_num, []):

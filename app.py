@@ -4,19 +4,30 @@ from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
+from nemoguardrails import LLMRails
 
-# NeMo uses asyncio internally. Running it in a thread pool worker (no running
-# event loop there) lets asyncio.run() work cleanly without nest_asyncio, which
-# would break Streamlit's own anyio-based ASGI server if patched at module level.
+# Each worker thread gets its own fresh event loop before any NeMo/httpx call.
+# This avoids two issues on Python 3.12+:
+#   1. asyncio.get_event_loop() raises RuntimeError in threads with no loop set.
+#   2. ChatGroq's httpx async client is tied to the loop it was created in —
+#      creating it fresh inside the thread ensures it uses the correct loop.
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="nemo_worker")
 
-def _run_in_thread(fn, *args, **kwargs):
-    future = _executor.submit(fn, *args, **kwargs)
-    return future.result(timeout=120)
+def _in_thread(fn):
+    """Submit fn() to a worker thread that owns a fresh asyncio event loop."""
+    def _wrapper():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return fn()
+        finally:
+            loop.close()
+            asyncio.set_event_loop(None)
+    return _executor.submit(_wrapper).result(timeout=120)
 
 from colang_defs import SYSTEM_PROMPT_RAW
 from diagrams import get_diagram
-from rail_configs import build_rails, COLANG_SNIPPETS
+from rail_configs import get_rails_config, COLANG_SNIPPETS, _ACTION_MAP
 
 try:
     import logfire
@@ -348,43 +359,46 @@ with st.sidebar:
 
 
 # ─────────────────────────────────────────────────────────────
-# Cached LLM + Rails builders
+# Cache only RailsConfig — pure Python, no async state.
+# ChatGroq and LLMRails are created fresh inside each worker
+# thread so they bind to that thread's event loop correctly.
 # ─────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
-def _chat_llm(api_key: str, model: str) -> ChatGroq:
-    return ChatGroq(api_key=api_key, model=model, temperature=0)
-
-
-@st.cache_resource(show_spinner=False)
-def _guard_llm(api_key: str, model: str) -> ChatGroq:
-    return ChatGroq(api_key=api_key, model=model, temperature=0)
-
-
-@st.cache_resource(show_spinner=False)
-def _rails(exp_num: int, guard_key: str, guard_model: str):
-    llm = _guard_llm(guard_key, guard_model)
-    return build_rails(exp_num, llm)
+def _cached_config(exp_num: int):
+    return get_rails_config(exp_num)
 
 
 # ─────────────────────────────────────────────────────────────
 # Inference helpers
 # ─────────────────────────────────────────────────────────────
 def infer_raw(message: str) -> tuple:
-    llm  = _chat_llm(groq_main, chat_model)
-    msgs = [SystemMessage(content=SYSTEM_PROMPT_RAW), HumanMessage(content=message)]
-    t0   = time.time()
-    resp = _run_in_thread(llm.invoke, msgs)
+    api_key = groq_main
+    model   = chat_model
+    msgs    = [SystemMessage(content=SYSTEM_PROMPT_RAW), HumanMessage(content=message)]
+    t0      = time.time()
+
+    def _call():
+        llm = ChatGroq(api_key=api_key, model=model, temperature=0)
+        return llm.invoke(msgs)
+
+    resp = _in_thread(_call)
     return resp.content, round((time.time() - t0) * 1000)
 
 
 def infer_guarded(exp_num: int, message: str) -> tuple:
-    rails = _rails(exp_num, groq_guard, guard_model)
-    t0    = time.time()
+    config  = _cached_config(exp_num)
+    api_key = groq_guard
+    model   = guard_model
+    t0      = time.time()
 
-    def _generate():
+    def _call():
+        llm   = ChatGroq(api_key=api_key, model=model, temperature=0)
+        rails = LLMRails(config, llm=llm)
+        for action_fn in _ACTION_MAP.get(exp_num, []):
+            rails.register_action(action_fn)
         return rails.generate(messages=[{"role": "user", "content": message}])
 
-    resp    = _run_in_thread(_generate)
+    resp    = _in_thread(_call)
     ms      = round((time.time() - t0) * 1000)
     content = resp.get("content", str(resp)) if isinstance(resp, dict) else str(resp)
     return content, ms
@@ -420,7 +434,7 @@ def render_experiment(exp_num: int):
 
     with col_diag:
         st.markdown("**Message Flow**")
-        st.graphviz_chart(get_diagram(exp_num), use_container_width=True)
+        st.graphviz_chart(get_diagram(exp_num), width="stretch")
 
     with col_info:
         st.markdown("**Rails Active**")
