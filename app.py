@@ -365,15 +365,33 @@ def infer_guarded(exp_num: int, message: str) -> tuple:
     resp = _executor.submit(_worker).result(timeout=120)
     ms   = round((time.time() - t0) * 1000)
 
-    content = resp.get("content", str(resp)) if isinstance(resp, dict) else str(resp)
+    # NeMo versions return different shapes — try every known format
+    if isinstance(resp, dict):
+        content = (
+            resp.get("content")
+            or resp.get("text")
+            or resp.get("message")
+            or resp.get("answer")
+            or (str(resp) if resp else "")
+        )
+    elif isinstance(resp, str):
+        content = resp
+    elif resp is None:
+        content = ""
+    else:
+        content = str(resp)
+
+    # If still empty, show the raw value so we can diagnose
+    if not content or not str(content).strip():
+        content = f"⚠️ [Empty response — raw: `{repr(resp)}`]"
 
     # Surface NeMo's hidden error logs when it swallows an exception
-    if "internal error" in content.lower():
+    if "internal error" in str(content).lower():
         logs = log_buf.getvalue().strip()
         if logs:
-            content = f"{content}\n\n---\n**NeMo debug log:**\n```\n{logs}\n```"
+            content = f"{content}\n\n---\n**NeMo error log:**\n```\n{logs}\n```"
 
-    return content, ms
+    return str(content), ms
 
 
 # ─────────────────────────────────────────────────────────────
