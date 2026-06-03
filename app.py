@@ -1,10 +1,15 @@
 import time
 import asyncio
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from nemoguardrails import LLMRails
+
+# Suppress noisy logfire export warnings — 401s during span export don't affect app functionality
+warnings.filterwarnings("ignore", message=".*Logfire API returned status code.*")
+warnings.filterwarnings("ignore", message=".*Failed to export.*")
 
 # Each worker thread gets its own fresh event loop before any NeMo/httpx call.
 # This avoids two issues on Python 3.12+:
@@ -345,13 +350,13 @@ with st.sidebar:
                         service_name="nemo-guardrails-classroom",
                     )
                     st.session_state.logfire_configured = True
-                except Exception as e:
-                    st.error(f"Logfire config error: {e}")
+                except Exception:
+                    st.session_state.logfire_configured = False
             if st.session_state.get("logfire_configured"):
                 logfire_on = True
-                st.success("✅ Logfire connected")
+                st.caption("📊 Logfire tracing active — check your dashboard")
         else:
-            st.warning("`logfire` not installed. Add it to requirements and run `pip install logfire`.")
+            st.caption("`logfire` not installed — tracing disabled")
 
     st.divider()
     st.caption("Built for the NeMo Guardrails teaching series")
