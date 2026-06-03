@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:console.groq.com)",
+      "WebFetch(domain:groq.com)",
+      "WebSearch"
+    ]
+  }
+}
