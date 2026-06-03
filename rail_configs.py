@@ -50,14 +50,17 @@ def get_rails_config(exp_num: int) -> RailsConfig:
     )
 
 
+def register_actions(rails: LLMRails, exp_num: int) -> None:
+    """Register any custom Python actions required for the given experiment."""
+    for action_fn in _ACTION_MAP.get(exp_num, []):
+        rails.register_action(action_fn)
+
+
 def build_rails(exp_num: int, guard_llm) -> LLMRails:
     """Build and return a fully configured LLMRails instance for the given experiment."""
     config = get_rails_config(exp_num)
     rails  = LLMRails(config, llm=guard_llm)
-
-    for action_fn in _ACTION_MAP.get(exp_num, []):
-        rails.register_action(action_fn)
-
+    register_actions(rails, exp_num)
     return rails
 
 

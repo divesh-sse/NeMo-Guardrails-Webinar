@@ -27,7 +27,7 @@ def _in_thread(fn):
 
 from colang_defs import SYSTEM_PROMPT_RAW
 from diagrams import get_diagram
-from rail_configs import get_rails_config, COLANG_SNIPPETS, _ACTION_MAP
+from rail_configs import get_rails_config, register_actions, COLANG_SNIPPETS
 
 try:
     import logfire
@@ -394,8 +394,7 @@ def infer_guarded(exp_num: int, message: str) -> tuple:
     def _call():
         llm   = ChatGroq(api_key=api_key, model=model, temperature=0)
         rails = LLMRails(config, llm=llm)
-        for action_fn in _ACTION_MAP.get(exp_num, []):
-            rails.register_action(action_fn)
+        register_actions(rails, exp_num)
         return rails.generate(messages=[{"role": "user", "content": message}])
 
     resp    = _in_thread(_call)
