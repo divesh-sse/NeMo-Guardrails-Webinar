@@ -8,9 +8,10 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from nemoguardrails import LLMRails
 
-# Suppress logfire export noise — 401s don't affect app functionality
+# Suppress logfire export noise and NeMo config conflict info messages
 warnings.filterwarnings("ignore", message=".*Logfire API returned status code.*")
 logging.getLogger("logfire").setLevel(logging.CRITICAL)
+logging.getLogger("nemoguardrails").setLevel(logging.ERROR)
 
 # Each worker thread gets its own fresh event loop before any NeMo/httpx call.
 # This avoids two issues on Python 3.12+:
