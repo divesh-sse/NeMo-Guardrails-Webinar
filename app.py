@@ -1,5 +1,6 @@
 import time
 import asyncio
+import logging
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
@@ -7,9 +8,9 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from nemoguardrails import LLMRails
 
-# Suppress noisy logfire export warnings — 401s during span export don't affect app functionality
+# Suppress logfire export noise — 401s don't affect app functionality
 warnings.filterwarnings("ignore", message=".*Logfire API returned status code.*")
-warnings.filterwarnings("ignore", message=".*Failed to export.*")
+logging.getLogger("logfire").setLevel(logging.CRITICAL)
 
 # Each worker thread gets its own fresh event loop before any NeMo/httpx call.
 # This avoids two issues on Python 3.12+:
