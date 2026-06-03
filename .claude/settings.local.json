@@ -8,7 +8,8 @@
       "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Labcomp69\\\\Downloads\\\\DMT delete it\\\\code\\\\g2\" -Recurse -Force)",
       "Bash(Select-Object FullName)",
       "Bash(Sort-Object FullName)",
-      "Bash(pip install *)"
+      "Bash(pip install *)",
+      "Bash(del \"c:\\\\Users\\\\Labcomp69\\\\Downloads\\\\DMT delete it\\\\code\\\\g2\\\\actions.py\")"
     ]
   }
 }

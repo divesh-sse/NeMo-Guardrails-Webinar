@@ -9,7 +9,7 @@ from colang_defs import (
     COLANG_OUTPUT_RAIL,
     COLANG_EXP5_FULL,
 )
-from actions import detect_pii_in_input, classify_urgency, sanitize_output
+from guardrail_actions import detect_pii_in_input, classify_urgency, sanitize_output
 
 _COLANG_MAP = {
     2: COLANG_TOPIC_GUARD,
