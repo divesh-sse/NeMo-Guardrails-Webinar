@@ -49,5 +49,6 @@ desktop.ini
 *.log
 logs/
 
-# Logfire local cache
-.logfire/
+
+
+.claude

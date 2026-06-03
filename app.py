@@ -5,7 +5,6 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 from langchain_groq import ChatGroq
-from langchain_core.messages import HumanMessage, SystemMessage
 from nemoguardrails import LLMRails
 
 # Suppress logfire export noise and NeMo config conflict info messages
@@ -35,11 +34,6 @@ def _in_thread(fn):
 from colang_defs import SYSTEM_PROMPT_RAW
 from diagrams import get_diagram
 from rail_configs import get_rails_config, register_actions, COLANG_SNIPPETS
-
-try:
-    from nemoguardrails.integrations.langchain.llm_adapter import LangChainLLMAdapter
-except ImportError:
-    LangChainLLMAdapter = None
 
 try:
     import logfire
@@ -386,7 +380,7 @@ def _cached_config(exp_num: int):
 def infer_raw(message: str) -> tuple:
     api_key = groq_main
     model   = chat_model
-    msgs    = [SystemMessage(content=SYSTEM_PROMPT_RAW), HumanMessage(content=message)]
+    msgs    = [{"role": "system", "content": SYSTEM_PROMPT_RAW}, {"role": "user", "content": message}]
     t0      = time.time()
 
     def _call():
@@ -405,8 +399,6 @@ def infer_guarded(exp_num: int, message: str) -> tuple:
 
     def _call():
         llm = ChatGroq(api_key=api_key, model=model, temperature=0)
-        if LangChainLLMAdapter is not None:
-            llm = LangChainLLMAdapter(llm)
         rails = LLMRails(config, llm=llm)
         register_actions(rails, exp_num)
         return rails.generate(messages=[{"role": "user", "content": message}])

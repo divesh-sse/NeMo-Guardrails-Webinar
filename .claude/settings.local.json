@@ -4,7 +4,10 @@
       "WebFetch(domain:console.groq.com)",
       "WebFetch(domain:groq.com)",
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\Labcomp69\\\\Downloads\\\\DMT delete it\\\\code\\\\g2\" -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "Bash(Sort-Object FullName)"
     ]
   }
 }
