@@ -1,39 +1,25 @@
 import time
-import asyncio
+import traceback
+import io
 import logging
 import warnings
-from concurrent.futures import ThreadPoolExecutor
+import nest_asyncio
 import streamlit as st
 from langchain_groq import ChatGroq
-from nemoguardrails import LLMRails
 
-# Suppress logfire export noise and NeMo config conflict info messages
+# Allow asyncio.run() to be called even if Streamlit already has a loop running.
+# This is the same technique the notebook uses (nest_asyncio.apply()).
+nest_asyncio.apply()
+
+# Keep logfire export noise quiet; NeMo logs go to ERROR by default but we
+# temporarily raise them to DEBUG around each guarded call so the UI can
+# show what went wrong instead of a generic "internal error" message.
 warnings.filterwarnings("ignore", message=".*Logfire API returned status code.*")
 logging.getLogger("logfire").setLevel(logging.CRITICAL)
-logging.getLogger("nemoguardrails").setLevel(logging.ERROR)
-
-# Each worker thread gets its own fresh event loop before any NeMo/httpx call.
-# This avoids two issues on Python 3.12+:
-#   1. asyncio.get_event_loop() raises RuntimeError in threads with no loop set.
-#   2. ChatGroq's httpx async client is tied to the loop it was created in —
-#      creating it fresh inside the thread ensures it uses the correct loop.
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="nemo_worker")
-
-def _in_thread(fn):
-    """Submit fn() to a worker thread that owns a fresh asyncio event loop."""
-    def _wrapper():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return fn()
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
-    return _executor.submit(_wrapper).result(timeout=120)
 
 from colang_defs import SYSTEM_PROMPT_RAW
 from diagrams import get_diagram
-from rail_configs import get_rails_config, register_actions, COLANG_SNIPPETS
+from rail_configs import build_rails, COLANG_SNIPPETS
 
 try:
     import logfire
@@ -365,47 +351,48 @@ with st.sidebar:
 
 
 # ─────────────────────────────────────────────────────────────
-# Cache only RailsConfig — pure Python, no async state.
-# ChatGroq and LLMRails are created fresh inside each worker
-# thread so they bind to that thread's event loop correctly.
+# Inference helpers  (no threading — nest_asyncio handles the loop)
 # ─────────────────────────────────────────────────────────────
-@st.cache_resource(show_spinner=False)
-def _cached_config(exp_num: int):
-    return get_rails_config(exp_num)
 
-
-# ─────────────────────────────────────────────────────────────
-# Inference helpers
-# ─────────────────────────────────────────────────────────────
 def infer_raw(message: str) -> tuple:
-    api_key = groq_main
-    model   = chat_model
-    msgs    = [{"role": "system", "content": SYSTEM_PROMPT_RAW}, {"role": "user", "content": message}]
-    t0      = time.time()
-
-    def _call():
-        llm = ChatGroq(api_key=api_key, model=model, temperature=0)
-        return llm.invoke(msgs)
-
-    resp = _in_thread(_call)
+    t0   = time.time()
+    llm  = ChatGroq(api_key=groq_main, model=chat_model, temperature=0)
+    resp = llm.invoke([
+        {"role": "system", "content": SYSTEM_PROMPT_RAW},
+        {"role": "user",   "content": message},
+    ])
     return resp.content, round((time.time() - t0) * 1000)
 
 
 def infer_guarded(exp_num: int, message: str) -> tuple:
-    config  = _cached_config(exp_num)
-    api_key = groq_guard
-    model   = guard_model
-    t0      = time.time()
+    t0 = time.time()
 
-    def _call():
-        llm = ChatGroq(api_key=api_key, model=model, temperature=0)
-        rails = LLMRails(config, llm=llm)
-        register_actions(rails, exp_num)
-        return rails.generate(messages=[{"role": "user", "content": message}])
+    # Capture NeMo debug logs so the UI can show the real error
+    # instead of NeMo's generic "I'm sorry, an internal error has occurred."
+    log_buf = io.StringIO()
+    handler = logging.StreamHandler(log_buf)
+    handler.setLevel(logging.DEBUG)
+    nemo_log = logging.getLogger("nemoguardrails")
+    nemo_log.setLevel(logging.DEBUG)
+    nemo_log.addHandler(handler)
 
-    resp    = _in_thread(_call)
+    try:
+        llm   = ChatGroq(api_key=groq_guard, model=guard_model, temperature=0)
+        rails = build_rails(exp_num, llm)
+        resp  = rails.generate(messages=[{"role": "user", "content": message}])
+    finally:
+        nemo_log.removeHandler(handler)
+        nemo_log.setLevel(logging.ERROR)  # restore quiet level
+
     ms      = round((time.time() - t0) * 1000)
     content = resp.get("content", str(resp)) if isinstance(resp, dict) else str(resp)
+
+    # If NeMo swallowed an error, surface the captured logs
+    if "internal error" in content.lower():
+        logs = log_buf.getvalue().strip()
+        if logs:
+            content = f"{content}\n\n---\n**NeMo debug log:**\n```\n{logs}\n```"
+
     return content, ms
 
 
@@ -416,9 +403,14 @@ def emit_trace(exp_num: int, user_msg: str, bot_msg: str, ms: float):
         with logfire.span(
             "nemo_rail_call",
             experiment=exp_num,
-            experiment_name=EXPERIMENTS[exp_num]["label"],
+            experiment_label=EXPERIMENTS[exp_num]["label"],
         ):
-            logfire.info("response", user=user_msg, bot=bot_msg, latency_ms=ms)
+            logfire.info(
+                "guardrail response",
+                user=user_msg,
+                bot=bot_msg,
+                latency_ms=ms,
+            )
     except Exception:
         pass
 
@@ -514,7 +506,9 @@ def render_experiment(exp_num: int):
                         {"role": "assistant", "content": bot_msg, "ms": ms}
                     )
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    st.error(f"**{type(e).__name__}:** {e}")
+                    with st.expander("Full traceback"):
+                        st.code(traceback.format_exc())
 
     if st.session_state[chat_key]:
         if st.button("🗑 Clear chat", key=f"clr_{exp_num}"):
