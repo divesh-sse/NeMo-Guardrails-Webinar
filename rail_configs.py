@@ -40,56 +40,12 @@ instructions:
       Only answer questions about these topics. Be professional and concise.
 """
 
-# NeMo 0.9.x+ requires ALL active flows to be listed under rails.input.flows.
-# Without this, intent-based Colang flows are defined but never invoked.
-_YAML_EXP2 = _YAML_BASE + """
-rails:
-  input:
-    flows:
-      - handle off topic
-"""
-
-_YAML_EXP3 = _YAML_BASE + """
-rails:
-  input:
-    flows:
-      - handle off topic
-      - jailbreak protection
-"""
-
-_YAML_EXP4 = _YAML_BASE + """
-rails:
-  input:
-    flows:
-      - handle off topic
-      - jailbreak protection
-      - sensitive topic protection
-"""
-
-_YAML_EXP5 = _YAML_BASE + """
-rails:
-  input:
-    flows:
-      - greeting
-      - capabilities
-      - farewell
-      - handle off topic
-      - jailbreak protection
-      - sensitive topic protection
-"""
-
 _YAML_INPUT_RAILS = _YAML_BASE + """
 rails:
   input:
     flows:
       - check input for pii
       - detect urgency
-      - greeting
-      - capabilities
-      - farewell
-      - handle off topic
-      - jailbreak protection
-      - sensitive topic protection
 """
 
 _YAML_OUTPUT_RAILS = _YAML_BASE + """
@@ -99,11 +55,13 @@ rails:
       - sanitize bot response
 """
 
+# Exp 2-5: intent-based flows only — NeMo's fastembed index handles matching,
+# no need to declare them under rails.input.flows.
 _YAML_MAP = {
-    2: _YAML_EXP2,
-    3: _YAML_EXP3,
-    4: _YAML_EXP4,
-    5: _YAML_EXP5,
+    2: _YAML_BASE,
+    3: _YAML_BASE,
+    4: _YAML_BASE,
+    5: _YAML_BASE,
     6: _YAML_INPUT_RAILS,
     7: _YAML_OUTPUT_RAILS,
 }

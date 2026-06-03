@@ -3,6 +3,7 @@ streamlit>=1.35.0
 
 # NeMo Guardrails
 nemoguardrails>=0.9.0
+fastembed>=0.2.0
 
 # LLM backend
 langchain>=0.2.0
