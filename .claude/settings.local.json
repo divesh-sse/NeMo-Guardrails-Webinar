@@ -3,7 +3,8 @@
     "allow": [
       "WebFetch(domain:console.groq.com)",
       "WebFetch(domain:groq.com)",
-      "WebSearch"
+      "WebSearch",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

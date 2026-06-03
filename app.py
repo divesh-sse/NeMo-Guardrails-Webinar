@@ -36,6 +36,11 @@ from diagrams import get_diagram
 from rail_configs import get_rails_config, register_actions, COLANG_SNIPPETS
 
 try:
+    from nemoguardrails.integrations.langchain.llm_adapter import LangChainLLMAdapter
+except ImportError:
+    LangChainLLMAdapter = None
+
+try:
     import logfire
     _LOGFIRE_PKG = True
 except ImportError:
@@ -399,6 +404,8 @@ def infer_guarded(exp_num: int, message: str) -> tuple:
 
     def _call():
         llm = ChatGroq(api_key=api_key, model=model, temperature=0)
+        if LangChainLLMAdapter is not None:
+            llm = LangChainLLMAdapter(llm)
         rails = LLMRails(config, llm=llm)
         register_actions(rails, exp_num)
         return rails.generate(messages=[{"role": "user", "content": message}])
