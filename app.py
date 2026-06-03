@@ -1,19 +1,20 @@
+import asyncio
 import time
 import traceback
 import io
 import logging
 import warnings
-import nest_asyncio
+from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 from langchain_groq import ChatGroq
 
-# Allow asyncio.run() to be called even if Streamlit already has a loop running.
-# This is the same technique the notebook uses (nest_asyncio.apply()).
-nest_asyncio.apply()
+# NeMo's generate() uses asyncio internally.
+# Streamlit runs on uvicorn/anyio — calling asyncio.run() directly from the
+# script thread interferes with that loop on Python 3.14.
+# Fix: run each NeMo call in a fresh worker thread so asyncio.run() inside
+# the thread gets its own isolated event loop, completely separate from anyio.
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="nemo")
 
-# Keep logfire export noise quiet; NeMo logs go to ERROR by default but we
-# temporarily raise them to DEBUG around each guarded call so the UI can
-# show what went wrong instead of a generic "internal error" message.
 warnings.filterwarnings("ignore", message=".*Logfire API returned status code.*")
 logging.getLogger("logfire").setLevel(logging.CRITICAL)
 
@@ -351,10 +352,11 @@ with st.sidebar:
 
 
 # ─────────────────────────────────────────────────────────────
-# Inference helpers  (no threading — nest_asyncio handles the loop)
+# Inference helpers
 # ─────────────────────────────────────────────────────────────
 
 def infer_raw(message: str) -> tuple:
+    # ChatGroq.invoke() is synchronous — safe to call directly.
     t0   = time.time()
     llm  = ChatGroq(api_key=groq_main, model=chat_model, temperature=0)
     resp = llm.invoke([
@@ -365,29 +367,45 @@ def infer_raw(message: str) -> tuple:
 
 
 def infer_guarded(exp_num: int, message: str) -> tuple:
-    t0 = time.time()
+    # NeMo uses asyncio internally. We run it in a worker thread so that
+    # asyncio.run() inside the thread gets an isolated event loop that does
+    # not interfere with Streamlit's anyio/uvicorn event loop.
+    # We also capture NeMo's debug logs so the UI shows the real error
+    # instead of the generic "I'm sorry, an internal error has occurred."
 
-    # Capture NeMo debug logs so the UI can show the real error
-    # instead of NeMo's generic "I'm sorry, an internal error has occurred."
     log_buf = io.StringIO()
-    handler = logging.StreamHandler(log_buf)
-    handler.setLevel(logging.DEBUG)
+    log_handler = logging.StreamHandler(log_buf)
+    log_handler.setLevel(logging.DEBUG)
     nemo_log = logging.getLogger("nemoguardrails")
-    nemo_log.setLevel(logging.DEBUG)
-    nemo_log.addHandler(handler)
 
-    try:
-        llm   = ChatGroq(api_key=groq_guard, model=guard_model, temperature=0)
-        rails = build_rails(exp_num, llm)
-        resp  = rails.generate(messages=[{"role": "user", "content": message}])
-    finally:
-        nemo_log.removeHandler(handler)
-        nemo_log.setLevel(logging.ERROR)  # restore quiet level
+    # snapshot api_key / model now — closures capture references, not values
+    api_key    = groq_guard
+    model_name = guard_model
 
-    ms      = round((time.time() - t0) * 1000)
+    def _worker():
+        nemo_log.setLevel(logging.DEBUG)
+        nemo_log.addHandler(log_handler)
+        try:
+            llm   = ChatGroq(api_key=api_key, model=model_name, temperature=0)
+            rails = build_rails(exp_num, llm)
+
+            async def _coro():
+                return await rails.generate_async(
+                    messages=[{"role": "user", "content": message}]
+                )
+
+            return asyncio.run(_coro())
+        finally:
+            nemo_log.removeHandler(log_handler)
+            nemo_log.setLevel(logging.ERROR)
+
+    t0   = time.time()
+    resp = _executor.submit(_worker).result(timeout=120)
+    ms   = round((time.time() - t0) * 1000)
+
     content = resp.get("content", str(resp)) if isinstance(resp, dict) else str(resp)
 
-    # If NeMo swallowed an error, surface the captured logs
+    # Surface NeMo's hidden error logs when it swallows an exception
     if "internal error" in content.lower():
         logs = log_buf.getvalue().strip()
         if logs:
