@@ -11,10 +11,6 @@ from colang_defs import (
 )
 from actions import detect_pii_in_input, classify_urgency, sanitize_output
 
-# ─────────────────────────────────────────────────────────────
-# Colang strings per experiment (cumulative)
-# ─────────────────────────────────────────────────────────────
-
 _COLANG_MAP = {
     2: COLANG_TOPIC_GUARD,
     3: COLANG_TOPIC_GUARD + COLANG_JAILBREAK,
@@ -44,12 +40,56 @@ instructions:
       Only answer questions about these topics. Be professional and concise.
 """
 
+# NeMo 0.9.x+ requires ALL active flows to be listed under rails.input.flows.
+# Without this, intent-based Colang flows are defined but never invoked.
+_YAML_EXP2 = _YAML_BASE + """
+rails:
+  input:
+    flows:
+      - handle off topic
+"""
+
+_YAML_EXP3 = _YAML_BASE + """
+rails:
+  input:
+    flows:
+      - handle off topic
+      - jailbreak protection
+"""
+
+_YAML_EXP4 = _YAML_BASE + """
+rails:
+  input:
+    flows:
+      - handle off topic
+      - jailbreak protection
+      - sensitive topic protection
+"""
+
+_YAML_EXP5 = _YAML_BASE + """
+rails:
+  input:
+    flows:
+      - greeting
+      - capabilities
+      - farewell
+      - handle off topic
+      - jailbreak protection
+      - sensitive topic protection
+"""
+
 _YAML_INPUT_RAILS = _YAML_BASE + """
 rails:
   input:
     flows:
       - check input for pii
       - detect urgency
+      - greeting
+      - capabilities
+      - farewell
+      - handle off topic
+      - jailbreak protection
+      - sensitive topic protection
 """
 
 _YAML_OUTPUT_RAILS = _YAML_BASE + """
@@ -60,17 +100,16 @@ rails:
 """
 
 _YAML_MAP = {
-    2: _YAML_BASE,
-    3: _YAML_BASE,
-    4: _YAML_BASE,
-    5: _YAML_BASE,
+    2: _YAML_EXP2,
+    3: _YAML_EXP3,
+    4: _YAML_EXP4,
+    5: _YAML_EXP5,
     6: _YAML_INPUT_RAILS,
     7: _YAML_OUTPUT_RAILS,
 }
 
 
 def get_rails_config(exp_num: int) -> RailsConfig:
-    """Return the RailsConfig for an experiment (no async state — safe to cache)."""
     return RailsConfig.from_content(
         colang_content=_COLANG_MAP[exp_num],
         yaml_content=_YAML_MAP[exp_num],
@@ -78,23 +117,16 @@ def get_rails_config(exp_num: int) -> RailsConfig:
 
 
 def register_actions(rails: LLMRails, exp_num: int) -> None:
-    """Register any custom Python actions required for the given experiment."""
     for action_fn in _ACTION_MAP.get(exp_num, []):
         rails.register_action(action_fn)
 
 
 def build_rails(exp_num: int, llm) -> LLMRails:
-    """Build and return a fully configured LLMRails instance for the given experiment."""
     config = get_rails_config(exp_num)
     rails  = LLMRails(config, llm=llm)
     register_actions(rails, exp_num)
     return rails
 
-
-# ─────────────────────────────────────────────────────────────
-# New-concept Colang snippet per experiment (for the code viewer)
-# Shows only what's NEW in each experiment, not the full stack
-# ─────────────────────────────────────────────────────────────
 
 COLANG_SNIPPETS = {
     1: "(No Colang — this is a raw LLM call with no NeMo rails)",

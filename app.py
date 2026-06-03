@@ -375,7 +375,7 @@ def infer_guarded(exp_num: int, message: str) -> tuple:
 
     log_buf = io.StringIO()
     log_handler = logging.StreamHandler(log_buf)
-    log_handler.setLevel(logging.DEBUG)
+    log_handler.setLevel(logging.ERROR)   # only capture actual errors, not file-loading noise
     nemo_log = logging.getLogger("nemoguardrails")
 
     # snapshot api_key / model now — closures capture references, not values
@@ -383,7 +383,7 @@ def infer_guarded(exp_num: int, message: str) -> tuple:
     model_name = guard_model
 
     def _worker():
-        nemo_log.setLevel(logging.DEBUG)
+        nemo_log.setLevel(logging.ERROR)
         nemo_log.addHandler(log_handler)
         try:
             llm   = ChatGroq(api_key=api_key, model=model_name, temperature=0)

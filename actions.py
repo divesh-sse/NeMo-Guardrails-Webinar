@@ -34,7 +34,15 @@ async def classify_urgency(context: Optional[dict] = None):
 @action(is_system_action=True)
 async def sanitize_output(context: Optional[dict] = None):
     """Intercepts bot responses containing hardcoded credentials or exploit techniques."""
-    bot_message = context.get("bot_message", "") if context else ""
+    # Different NeMo versions use different context keys for the bot's response.
+    bot_message = ""
+    if context:
+        bot_message = (
+            context.get("bot_message")
+            or context.get("response")
+            or context.get("last_bot_message")
+            or ""
+        )
 
     sensitive_output_patterns = {
         "hardcoded_credential": r"(?i)(password|passwd|secret|api[_\-]?key|token)\s*[:=]\s*['\"]?\w{4,}",
