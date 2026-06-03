@@ -5,7 +5,6 @@ import streamlit as st
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage
 from nemoguardrails import LLMRails
-from nemoguardrails.integrations.langchain.llm_rails import LangChainLLMAdapter
 
 # Each worker thread gets its own fresh event loop before any NeMo/httpx call.
 # This avoids two issues on Python 3.12+:
@@ -365,8 +364,8 @@ with st.sidebar:
 # thread so they bind to that thread's event loop correctly.
 # ─────────────────────────────────────────────────────────────
 @st.cache_resource(show_spinner=False)
-def _cached_config(exp_num: int):
-    return get_rails_config(exp_num)
+def _cached_config(exp_num: int, model: str, api_key: str):
+    return get_rails_config(exp_num, model, api_key)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -387,14 +386,11 @@ def infer_raw(message: str) -> tuple:
 
 
 def infer_guarded(exp_num: int, message: str) -> tuple:
-    config  = _cached_config(exp_num)
-    api_key = groq_guard
-    model   = guard_model
-    t0      = time.time()
+    config = _cached_config(exp_num, guard_model, groq_guard)
+    t0     = time.time()
 
     def _call():
-        llm   = LangChainLLMAdapter(ChatGroq(api_key=api_key, model=model, temperature=0))
-        rails = LLMRails(config, llm=llm)
+        rails = LLMRails(config)
         register_actions(rails, exp_num)
         return rails.generate(messages=[{"role": "user", "content": message}])
 

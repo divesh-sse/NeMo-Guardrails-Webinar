@@ -1,9 +1,6 @@
 from nemoguardrails import RailsConfig, LLMRails
 
 from colang_defs import (
-    YAML_BASE,
-    YAML_WITH_INPUT_RAILS,
-    YAML_WITH_OUTPUT_RAILS,
     COLANG_TOPIC_GUARD,
     COLANG_JAILBREAK,
     COLANG_SENSITIVE,
@@ -13,6 +10,8 @@ from colang_defs import (
     COLANG_EXP5_FULL,
 )
 from actions import detect_pii_in_input, classify_urgency, sanitize_output
+
+_GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
 # ─────────────────────────────────────────────────────────────
 # Colang strings per experiment (cumulative)
@@ -27,26 +26,53 @@ _COLANG_MAP = {
     7: COLANG_EXP5_FULL + COLANG_OUTPUT_RAIL,
 }
 
-_YAML_MAP = {
-    2: YAML_BASE,
-    3: YAML_BASE,
-    4: YAML_BASE,
-    5: YAML_BASE,
-    6: YAML_WITH_INPUT_RAILS,
-    7: YAML_WITH_OUTPUT_RAILS,
-}
-
 _ACTION_MAP = {
     6: [detect_pii_in_input, classify_urgency],
     7: [sanitize_output],
 }
 
 
-def get_rails_config(exp_num: int) -> RailsConfig:
+def _build_yaml(exp_num: int, model: str, api_key: str) -> str:
+    """Build YAML config with Groq's OpenAI-compatible endpoint baked in."""
+    rails_section = ""
+    if exp_num == 6:
+        rails_section = """
+rails:
+  input:
+    flows:
+      - check input for pii
+      - detect urgency
+"""
+    elif exp_num == 7:
+        rails_section = """
+rails:
+  output:
+    flows:
+      - sanitize bot response
+"""
+    return f"""
+models:
+  - type: main
+    engine: openai
+    model: {model}
+    parameters:
+      base_url: {_GROQ_BASE_URL}
+      api_key: {api_key}
+
+instructions:
+  - type: general
+    content: |
+      You are an Enterprise IT Assistant specialising in Kubernetes,
+      Intel hardware, and enterprise networking.
+      Only answer questions about these topics. Be professional and concise.
+{rails_section}"""
+
+
+def get_rails_config(exp_num: int, model: str, api_key: str) -> RailsConfig:
     """Return the RailsConfig for an experiment (no async state — safe to cache)."""
     return RailsConfig.from_content(
         colang_content=_COLANG_MAP[exp_num],
-        yaml_content=_YAML_MAP[exp_num],
+        yaml_content=_build_yaml(exp_num, model, api_key),
     )
 
 
@@ -56,10 +82,10 @@ def register_actions(rails: LLMRails, exp_num: int) -> None:
         rails.register_action(action_fn)
 
 
-def build_rails(exp_num: int, guard_llm) -> LLMRails:
+def build_rails(exp_num: int, model: str, api_key: str) -> LLMRails:
     """Build and return a fully configured LLMRails instance for the given experiment."""
-    config = get_rails_config(exp_num)
-    rails  = LLMRails(config, llm=guard_llm)
+    config = get_rails_config(exp_num, model, api_key)
+    rails  = LLMRails(config)
     register_actions(rails, exp_num)
     return rails
 
