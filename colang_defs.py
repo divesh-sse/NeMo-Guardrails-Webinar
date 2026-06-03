@@ -81,6 +81,7 @@ define bot refuse off topic
 define flow handle off topic
   user ask off topic
   bot refuse off topic
+  stop
 """
 
 COLANG_JAILBREAK = """
@@ -102,6 +103,7 @@ define bot refuse jailbreak
 define flow jailbreak protection
   user attempt jailbreak
   bot refuse jailbreak
+  stop
 """
 
 COLANG_SENSITIVE = """
@@ -121,6 +123,7 @@ define bot refuse sensitive topic
 define flow sensitive topic protection
   user ask sensitive topic
   bot refuse sensitive topic
+  stop
 """
 
 COLANG_DIALOG = """
@@ -138,6 +141,7 @@ define bot express greeting
 define flow greeting
   user express greeting
   bot express greeting
+  stop
 
 
 define user ask capabilities
@@ -155,6 +159,7 @@ define bot explain capabilities
 define flow capabilities
   user ask capabilities
   bot explain capabilities
+  stop
 
 
 define user express farewell
@@ -172,6 +177,7 @@ define bot express farewell
 define flow farewell
   user express farewell
   bot express farewell
+  stop
 """
 
 COLANG_ACTIONS = """

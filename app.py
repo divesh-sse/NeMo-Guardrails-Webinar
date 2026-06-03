@@ -3,7 +3,6 @@ import time
 import traceback
 import io
 import logging
-import warnings
 from concurrent.futures import ThreadPoolExecutor
 import streamlit as st
 from langchain_groq import ChatGroq
@@ -15,18 +14,9 @@ from langchain_groq import ChatGroq
 # the thread gets its own isolated event loop, completely separate from anyio.
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="nemo")
 
-warnings.filterwarnings("ignore", message=".*Logfire API returned status code.*")
-logging.getLogger("logfire").setLevel(logging.CRITICAL)
-
 from colang_defs import SYSTEM_PROMPT_RAW
 from diagrams import get_diagram
 from rail_configs import build_rails, COLANG_SNIPPETS
-
-try:
-    import logfire
-    _LOGFIRE_PKG = True
-except ImportError:
-    _LOGFIRE_PKG = False
 
 # ─────────────────────────────────────────────────────────────
 # Groq model catalogue  (verified June 2026)
@@ -319,34 +309,6 @@ with st.sidebar:
         st.warning("8B models may miss subtle jailbreaks. A 70B+ model is recommended for guardrails.")
 
     st.divider()
-    st.subheader("📊 Pydantic Logfire (Optional)")
-    logfire_token = st.text_input(
-        "Logfire Token",
-        type="password",
-        placeholder="pylf_...",
-        help="Traces every rail call — latency, user message, bot response — to your Logfire dashboard",
-    )
-
-    logfire_on = False
-    if logfire_token:
-        if _LOGFIRE_PKG:
-            if "logfire_configured" not in st.session_state:
-                try:
-                    logfire.configure(
-                        token=logfire_token,
-                        send_to_logfire=True,
-                        service_name="nemo-guardrails-classroom",
-                    )
-                    st.session_state.logfire_configured = True
-                except Exception:
-                    st.session_state.logfire_configured = False
-            if st.session_state.get("logfire_configured"):
-                logfire_on = True
-                st.caption("📊 Logfire tracing active — check your dashboard")
-        else:
-            st.caption("`logfire` not installed — tracing disabled")
-
-    st.divider()
     st.caption("Built for the NeMo Guardrails teaching series")
     st.caption("BYOK — your keys never leave your machine")
 
@@ -414,25 +376,6 @@ def infer_guarded(exp_num: int, message: str) -> tuple:
     return content, ms
 
 
-def emit_trace(exp_num: int, user_msg: str, bot_msg: str, ms: float):
-    if not logfire_on:
-        return
-    try:
-        with logfire.span(
-            "nemo_rail_call",
-            experiment=exp_num,
-            experiment_label=EXPERIMENTS[exp_num]["label"],
-        ):
-            logfire.info(
-                "guardrail response",
-                user=user_msg,
-                bot=bot_msg,
-                latency_ms=ms,
-            )
-    except Exception:
-        pass
-
-
 # ─────────────────────────────────────────────────────────────
 # Reusable experiment renderer
 # ─────────────────────────────────────────────────────────────
@@ -465,9 +408,6 @@ def render_experiment(exp_num: int):
             st.caption(f"Chatbot: `{chat_model}`")
         else:
             st.caption(f"Guardrail: `{guard_model}`")
-
-        if logfire_on:
-            st.info("📊 Logfire tracing ON", icon="📡")
 
         with st.expander("📋 Colang — new rules in this experiment"):
             st.code(COLANG_SNIPPETS[exp_num], language="text")
@@ -517,7 +457,6 @@ def render_experiment(exp_num: int):
                     else:
                         bot_msg, ms = infer_guarded(exp_num, user_input)
 
-                    emit_trace(exp_num, user_input, bot_msg, ms)
                     st.write(bot_msg)
                     st.caption(f"⏱ {ms} ms")
                     st.session_state[chat_key].append(
